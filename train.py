@@ -102,7 +102,10 @@ def reconstruction(args):
     n_lamb_sigma = args.n_lamb_sigma
     n_lamb_sh = args.n_lamb_sh
 
-    
+    if update_AlphaMask_list is None:
+        update_AlphaMask_list = []
+        
+
     if args.add_timestamp:
         logfolder = f'{args.basedir}/{args.expname}{datetime.datetime.now().strftime("-%Y%m%d-%H%M%S")}'
     else:

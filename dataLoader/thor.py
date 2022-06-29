@@ -32,13 +32,13 @@ class THORDataset(Dataset):
         self.img_wh = [int(224 / downsample), int(224 / downsample)]
         self.focal = 0.5 * self.img_wh[0] / np.tan(0.25 * np.pi)
 
-        self.scene_bbox = torch.tensor([[-10.0, -10.0, -10.0], [10.0, 10.0, 10.0]])
-        self.thor2opencv = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
+        self.scene_bbox = torch.tensor([[-20.0, -20.0, -20.0], [20.0, 20.0, 20.0]])
+        self.convention = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
 
         self.prepare()
 
         self.white_bg = True
-        self.near_far = [0.01, 10.0]
+        self.near_far = [0.05, 10.0]
         
         self.center = torch.mean(self.scene_bbox, dim=0).float().view(1, 1, 3)
         self.radius = (self.scene_bbox[1].view(1, 1, 3) - self.center).float()
@@ -149,7 +149,7 @@ class THORDataset(Dataset):
 
         c2w = np.roll(pose, shift=-1, axis=-1)
         c2w = np.concatenate([c2w, [[0.0, 0.0, 0.0, 1.0]]], axis=-2)
-        c2w = torch.FloatTensor(c2w @ self.thor2opencv)
+        c2w = torch.FloatTensor(c2w @ self.convention)
 
         rays_o, rays_d = get_rays(self.directions, c2w)
         rays = torch.cat([rays_o, rays_d], 1)
