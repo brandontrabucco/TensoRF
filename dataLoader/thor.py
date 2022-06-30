@@ -56,8 +56,8 @@ class THORDataset(Dataset):
 
     @property
     def all_clip(self):
-        out = [vi["clip"] for v in self.dataset_dict.values() for vi in v]
-        return torch.stack(out, dim=0) if self.is_stack else torch.cat(out, dim=0)
+        out = [torch.FloatTensor(vi["clip"]) for v in self.dataset_dict.values() for vi in v]
+        return torch.stack(out, dim=0)
     
     def prepare(self):
 

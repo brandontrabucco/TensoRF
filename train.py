@@ -171,8 +171,13 @@ def reconstruction(args):
     PSNRs,PSNRs_test = [],[0]
 
     allrays, allrgbs = train_dataset.all_rays, train_dataset.all_rgbs
+
+    allclip = train_dataset.all_clip.to(device)
+    rays_per_image = allrays.shape[0] // allclip.shape[0]
+    allids = torch.arange(allclip.shape[0]).repeat_interleave(rays_per_image)
+
     if not args.ndc_ray:
-        allrays, allrgbs = tensorf_module.filtering_rays(allrays, allrgbs, bbox_only=True)
+        allrays, allrgbs, allids = tensorf_module.filtering_rays(allrays, allrgbs, allids, bbox_only=True)
     trainingSampler = SimpleSampler(allrays.shape[0], args.batch_size)
 
     Ortho_reg_weight = args.Ortho_weight
@@ -189,10 +194,12 @@ def reconstruction(args):
     for iteration in pbar:
 
         ray_idx = trainingSampler.nextids()
-        rays_train, rgb_train = allrays[ray_idx], allrgbs[ray_idx].to(device)
+        rays_train, rgb_train, ids_train = allrays[ray_idx], allrgbs[ray_idx].to(device), allids[ray_idx].to(device)
 
-        #rgb_map, alphas_map, depth_map, weights, uncertainty
-        rgb_map, alphas_map, depth_map, weights, uncertainty = renderer(rays_train, tensorf, chunk=args.batch_size,
+        ids_train = torch.arange(199).to(device).view(1, 199) + ((ids_train // 199) * 199).view(args.batch_size, 1)
+        clip_train = torch.nn.functional.embedding(ids_train, allclip)
+
+        rgb_map, alphas_map, depth_map, weights, uncertainty = renderer(rays_train, clip_train, tensorf, chunk=args.batch_size,
                                 N_samples=nSamples, white_bg = white_bg, ndc_ray=ndc_ray, device=device, is_train=True)
 
         loss = torch.mean((rgb_map - rgb_train) ** 2)
