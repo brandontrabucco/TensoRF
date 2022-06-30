@@ -1,7 +1,7 @@
 
 dataset_name = thor
 datadir = /home/ec2-user/srt/data/thor
-expname =  thor_scene_test
+expname =  thor_scene_iter
 basedir = ./log
 
 n_iters = 60000

@@ -3,15 +3,17 @@ import os
 from tqdm.auto import tqdm
 from opt import config_parser
 
-
+from torch.nn.parallel import DistributedDataParallel
 
 import json, random
 from renderer import *
 from utils import *
 from torch.utils.tensorboard import SummaryWriter
+from torch.utils.data import DataLoader
 import datetime
 
 from dataLoader import dataset_dict
+from dataLoader.gpu_utils import init_ddp, get_rank
 import sys
 
 
@@ -110,14 +112,17 @@ def reconstruction(args):
         logfolder = f'{args.basedir}/{args.expname}{datetime.datetime.now().strftime("-%Y%m%d-%H%M%S")}'
     else:
         logfolder = f'{args.basedir}/{args.expname}'
-    
 
+
+    
     # init log file
     os.makedirs(logfolder, exist_ok=True)
     os.makedirs(f'{logfolder}/imgs_vis', exist_ok=True)
     os.makedirs(f'{logfolder}/imgs_rgba', exist_ok=True)
     os.makedirs(f'{logfolder}/rgba', exist_ok=True)
-    summary_writer = SummaryWriter(logfolder)
+
+    if rank == 0:
+        summary_writer = SummaryWriter(logfolder)
 
 
 
@@ -140,8 +145,13 @@ def reconstruction(args):
                     shadingMode=args.shadingMode, alphaMask_thres=args.alpha_mask_thre, density_shift=args.density_shift, distance_scale=args.distance_scale,
                     pos_pe=args.pos_pe, view_pe=args.view_pe, fea_pe=args.fea_pe, featureC=args.featureC, step_ratio=args.step_ratio, fea2denseAct=args.fea2denseAct)
 
+    tensorf_module = tensorf
 
-    grad_vars = tensorf.get_optparam_groups(args.lr_init, args.lr_basis)
+    if world_size > 1:
+        tensorf = DistributedDataParallel(tensorf, device_ids=[rank], output_device=rank)
+        tensorf_module = tensorf.module
+
+    grad_vars = tensorf_module.get_optparam_groups(args.lr_init, args.lr_basis)
     if args.lr_decay_iters > 0:
         lr_factor = args.lr_decay_target_ratio**(1/args.lr_decay_iters)
     else:
@@ -162,7 +172,7 @@ def reconstruction(args):
 
     allrays, allrgbs = train_dataset.all_rays, train_dataset.all_rgbs
     if not args.ndc_ray:
-        allrays, allrgbs = tensorf.filtering_rays(allrays, allrgbs, bbox_only=True)
+        allrays, allrgbs = tensorf_module.filtering_rays(allrays, allrgbs, bbox_only=True)
     trainingSampler = SimpleSampler(allrays.shape[0], args.batch_size)
 
     Ortho_reg_weight = args.Ortho_weight
@@ -178,7 +188,6 @@ def reconstruction(args):
     pbar = tqdm(range(args.n_iters), miniters=args.progress_refresh_rate, file=sys.stdout)
     for iteration in pbar:
 
-
         ray_idx = trainingSampler.nextids()
         rays_train, rgb_train = allrays[ray_idx], allrgbs[ray_idx].to(device)
 
@@ -192,24 +201,28 @@ def reconstruction(args):
         # loss
         total_loss = loss
         if Ortho_reg_weight > 0:
-            loss_reg = tensorf.vector_comp_diffs()
+            loss_reg = tensorf_module.vector_comp_diffs()
             total_loss += Ortho_reg_weight*loss_reg
-            summary_writer.add_scalar('train/reg', loss_reg.detach().item(), global_step=iteration)
+            if rank == 0:
+                summary_writer.add_scalar('train/reg', loss_reg.detach().item(), global_step=iteration)
         if L1_reg_weight > 0:
-            loss_reg_L1 = tensorf.density_L1()
+            loss_reg_L1 = tensorf_module.density_L1()
             total_loss += L1_reg_weight*loss_reg_L1
-            summary_writer.add_scalar('train/reg_l1', loss_reg_L1.detach().item(), global_step=iteration)
+            if rank == 0:
+                summary_writer.add_scalar('train/reg_l1', loss_reg_L1.detach().item(), global_step=iteration)
 
         if TV_weight_density>0:
             TV_weight_density *= lr_factor
-            loss_tv = tensorf.TV_loss_density(tvreg) * TV_weight_density
+            loss_tv = tensorf_module.TV_loss_density(tvreg) * TV_weight_density
             total_loss = total_loss + loss_tv
-            summary_writer.add_scalar('train/reg_tv_density', loss_tv.detach().item(), global_step=iteration)
+            if rank == 0:
+                summary_writer.add_scalar('train/reg_tv_density', loss_tv.detach().item(), global_step=iteration)
         if TV_weight_app>0:
             TV_weight_app *= lr_factor
-            loss_tv = loss_tv + tensorf.TV_loss_app(tvreg)*TV_weight_app
+            loss_tv = loss_tv + tensorf_module.TV_loss_app(tvreg)*TV_weight_app
             total_loss = total_loss + loss_tv
-            summary_writer.add_scalar('train/reg_tv_app', loss_tv.detach().item(), global_step=iteration)
+            if rank == 0:
+                summary_writer.add_scalar('train/reg_tv_app', loss_tv.detach().item(), global_step=iteration)
 
         optimizer.zero_grad()
         total_loss.backward()
@@ -218,8 +231,9 @@ def reconstruction(args):
         loss = loss.detach().item()
         
         PSNRs.append(-10.0 * np.log(loss) / np.log(10.0))
-        summary_writer.add_scalar('train/PSNR', PSNRs[-1], global_step=iteration)
-        summary_writer.add_scalar('train/mse', loss, global_step=iteration)
+        if rank == 0:
+            summary_writer.add_scalar('train/PSNR', PSNRs[-1], global_step=iteration)
+            summary_writer.add_scalar('train/mse', loss, global_step=iteration)
 
 
         for param_group in optimizer.param_groups:
@@ -239,7 +253,8 @@ def reconstruction(args):
         if iteration % args.vis_every == args.vis_every - 1 and args.N_vis!=0:
             PSNRs_test = evaluation(test_dataset,tensorf, args, renderer, f'{logfolder}/imgs_vis/', N_vis=args.N_vis,
                                     prtx=f'{iteration:06d}_', N_samples=nSamples, white_bg = white_bg, ndc_ray=ndc_ray, compute_extra_metrics=False)
-            summary_writer.add_scalar('test/psnr', np.mean(PSNRs_test), global_step=iteration)
+            if rank == 0:
+                summary_writer.add_scalar('test/psnr', np.mean(PSNRs_test), global_step=iteration)
 
 
 
@@ -247,9 +262,9 @@ def reconstruction(args):
 
             if reso_cur[0] * reso_cur[1] * reso_cur[2]<256**3:# update volume resolution
                 reso_mask = reso_cur
-            new_aabb = tensorf.updateAlphaMask(tuple(reso_mask))
+            new_aabb = tensorf_module.updateAlphaMask(tuple(reso_mask))
             if iteration == update_AlphaMask_list[0]:
-                tensorf.shrink(new_aabb)
+                tensorf_module.shrink(new_aabb)
                 # tensorVM.alphaMask = None
                 L1_reg_weight = args.L1_weight_rest
                 print("continuing L1_reg_weight", L1_reg_weight)
@@ -257,26 +272,32 @@ def reconstruction(args):
 
             if not args.ndc_ray and iteration == update_AlphaMask_list[1]:
                 # filter rays outside the bbox
-                allrays,allrgbs = tensorf.filtering_rays(allrays,allrgbs)
+                allrays,allrgbs = tensorf_module.filtering_rays(allrays,allrgbs)
                 trainingSampler = SimpleSampler(allrgbs.shape[0], args.batch_size)
 
 
         if iteration in upsamp_list:
             n_voxels = N_voxel_list.pop(0)
-            reso_cur = N_to_reso(n_voxels, tensorf.aabb)
+            reso_cur = N_to_reso(n_voxels, tensorf_module.aabb)
             nSamples = min(args.nSamples, cal_n_samples(reso_cur,args.step_ratio))
-            tensorf.upsample_volume_grid(reso_cur)
+            tensorf_module.upsample_volume_grid(reso_cur)
 
             if args.lr_upsample_reset:
                 print("reset lr to initial")
                 lr_scale = 1 #0.1 ** (iteration / args.n_iters)
             else:
                 lr_scale = args.lr_decay_target_ratio ** (iteration / args.n_iters)
-            grad_vars = tensorf.get_optparam_groups(args.lr_init*lr_scale, args.lr_basis*lr_scale)
+
+            if world_size > 1:
+                tensorf = DistributedDataParallel(tensorf_module, device_ids=[rank], output_device=rank)
+                tensorf_module = tensorf.module
+
+            grad_vars = tensorf_module.get_optparam_groups(args.lr_init*lr_scale, args.lr_basis*lr_scale)
             optimizer = torch.optim.Adam(grad_vars, betas=(0.9, 0.99))
         
 
-    tensorf.save(f'{logfolder}/{args.expname}.th')
+    if rank == 0:
+        tensorf_module.save(f'{logfolder}/{args.expname}.th')
 
 
     if args.render_train:
@@ -290,7 +311,8 @@ def reconstruction(args):
         os.makedirs(f'{logfolder}/imgs_test_all', exist_ok=True)
         PSNRs_test = evaluation(test_dataset,tensorf, args, renderer, f'{logfolder}/imgs_test_all/',
                                 N_vis=-1, N_samples=-1, white_bg = white_bg, ndc_ray=ndc_ray,device=device)
-        summary_writer.add_scalar('test/psnr_all', np.mean(PSNRs_test), global_step=iteration)
+        if rank == 0:
+            summary_writer.add_scalar('test/psnr_all', np.mean(PSNRs_test), global_step=iteration)
         print(f'======> {args.expname} test all psnr: {np.mean(PSNRs_test)} <========================')
 
     if args.render_path:
@@ -304,9 +326,12 @@ def reconstruction(args):
 
 if __name__ == '__main__':
 
+    rank, world_size = init_ddp()
+    device = torch.device(f"cuda:{rank}")
+
     torch.set_default_dtype(torch.float32)
-    torch.manual_seed(20211202)
-    np.random.seed(20211202)
+    torch.manual_seed(20211202 + rank)
+    np.random.seed(20211202 + rank)
 
     args = config_parser()
     print(args)

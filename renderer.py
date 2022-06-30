@@ -55,8 +55,8 @@ def evaluation(test_dataset,tensorf, args, renderer, savePath=None, N_vis=5, prt
 
             if compute_extra_metrics:
                 ssim = rgb_ssim(rgb_map, gt_rgb, 1)
-                l_a = rgb_lpips(gt_rgb.numpy(), rgb_map.numpy(), 'alex', tensorf.device)
-                l_v = rgb_lpips(gt_rgb.numpy(), rgb_map.numpy(), 'vgg', tensorf.device)
+                l_a = rgb_lpips(gt_rgb.numpy(), rgb_map.numpy(), 'alex', device)
+                l_v = rgb_lpips(gt_rgb.numpy(), rgb_map.numpy(), 'vgg', device)
                 ssims.append(ssim)
                 l_alex.append(l_a)
                 l_vgg.append(l_v)
