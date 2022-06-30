@@ -47,7 +47,7 @@ def evaluation(test_dataset,tensorf, args, renderer, chunk=2048, savePath=None, 
         W, H = test_dataset.img_wh
         rays = samples.view(-1,samples.shape[-1])
 
-        ids_test = torch.arange(199).to(device).view(1, 199) + (idx // 199) * 199
+        ids_test = torch.arange(199).to(device).view(1, 199) + ((idx * img_eval_interval) // 199) * 199
         clip = torch.nn.functional.embedding(ids_test, clip_test)
         clip = clip.expand(rays.shape[0], *clip.shape[1:])
 

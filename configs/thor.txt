@@ -5,13 +5,13 @@ expname =  thor_scene_iter
 basedir = ./log
 
 n_iters = 60000
-batch_size = 128
+batch_size = 64
 
 N_voxel_init = 134217728 # 512**3
 N_voxel_final = 134217728 # 512**3
 
 N_vis = 5
-vis_every = 10000
+vis_every = 1000
 
 render_test = 1
 
