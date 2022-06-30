@@ -4,6 +4,7 @@ from dataLoader.ray_utils import get_rays
 from models.tensoRF import TensorVM, TensorCP, raw2alpha, TensorVMSplit, AlphaGridMask
 from utils import *
 from dataLoader.ray_utils import ndc_rays_blender
+from dataLoader.gpu_utils import get_world_size, get_rank
 
 
 def OctreeRender_trilinear_fast(rays, clip, tensorf, chunk=4096, N_samples=-1, ndc_ray=False, white_bg=True, is_train=False, device='cuda'):
@@ -22,12 +23,14 @@ def OctreeRender_trilinear_fast(rays, clip, tensorf, chunk=4096, N_samples=-1, n
     return torch.cat(rgbs), None, torch.cat(depth_maps), None, None
 
 @torch.no_grad()
-def evaluation(test_dataset,tensorf, args, renderer, savePath=None, N_vis=5, prtx='', N_samples=-1,
+def evaluation(test_dataset,tensorf, args, renderer, chunk=2048, savePath=None, N_vis=5, prtx='', N_samples=-1,
                white_bg=False, ndc_ray=False, compute_extra_metrics=True, device='cuda'):
     PSNRs, rgb_maps, depth_maps = [], [], []
     ssims,l_alex,l_vgg=[],[],[]
     os.makedirs(savePath, exist_ok=True)
     os.makedirs(savePath+"/rgbd", exist_ok=True)
+
+    world_size = get_world_size()
 
     try:
         tqdm._instances.clear()
@@ -47,7 +50,7 @@ def evaluation(test_dataset,tensorf, args, renderer, savePath=None, N_vis=5, prt
         ids_test = torch.arange(199).to(device).view(1, 199) + (idx // 199) * 199
         clip = torch.nn.functional.embedding(ids_test, clip_test)
 
-        rgb_map, _, depth_map, _, _ = renderer(rays, clip, tensorf, chunk=4096, N_samples=N_samples,
+        rgb_map, _, depth_map, _, _ = renderer(rays, clip, tensorf, chunk=chunk, N_samples=N_samples,
                                         ndc_ray=ndc_ray, white_bg = white_bg, device=device)
         rgb_map = rgb_map.clamp(0.0, 1.0)
 
@@ -93,12 +96,14 @@ def evaluation(test_dataset,tensorf, args, renderer, savePath=None, N_vis=5, prt
     return PSNRs
 
 @torch.no_grad()
-def evaluation_path(test_dataset,tensorf, c2ws, clip_features, renderer, savePath=None, N_vis=5, prtx='', N_samples=-1,
+def evaluation_path(test_dataset,tensorf, c2ws, clip_features, renderer, chunk=2048, savePath=None, N_vis=5, prtx='', N_samples=-1,
                     white_bg=False, ndc_ray=False, compute_extra_metrics=True, device='cuda'):
     PSNRs, rgb_maps, depth_maps = [], [], []
     ssims,l_alex,l_vgg=[],[],[]
     os.makedirs(savePath, exist_ok=True)
     os.makedirs(savePath+"/rgbd", exist_ok=True)
+
+    world_size = get_world_size()
 
     try:
         tqdm._instances.clear()
@@ -116,7 +121,7 @@ def evaluation_path(test_dataset,tensorf, c2ws, clip_features, renderer, savePat
             rays_o, rays_d = ndc_rays_blender(H, W, test_dataset.focal[0], 1.0, rays_o, rays_d)
         rays = torch.cat([rays_o, rays_d], 1)  # (h*w, 6)
 
-        rgb_map, _, depth_map, _, _ = renderer(rays, clip_features, tensorf, chunk=8192, N_samples=N_samples,
+        rgb_map, _, depth_map, _, _ = renderer(rays, clip_features, tensorf, chunk=chunk, N_samples=N_samples,
                                         ndc_ray=ndc_ray, white_bg = white_bg, device=device)
         rgb_map = rgb_map.clamp(0.0, 1.0)
 

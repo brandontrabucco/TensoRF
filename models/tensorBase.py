@@ -57,6 +57,28 @@ class AlphaGridMask(torch.nn.Module):
         return (xyz_sampled-self.aabb[0]) * self.invgridSize - 1
 
 
+class MLPRender_Fea_Density(torch.nn.Module):
+    def __init__(self,inChanel, feape=6, featureC=128):
+        super(MLPRender_Fea_Density, self).__init__()
+
+        self.in_mlpC = 2*feape*inChanel + inChanel
+        self.feape = feape
+        layer1 = torch.nn.Linear(self.in_mlpC, featureC)
+        layer2 = torch.nn.Linear(featureC, featureC)
+        layer3 = torch.nn.Linear(featureC, 1)
+
+        self.mlp = torch.nn.Sequential(layer1, torch.nn.ReLU(inplace=True), layer2, torch.nn.ReLU(inplace=True), layer3)
+        torch.nn.init.constant_(self.mlp[-1].bias, 0)
+
+    def forward(self, pts, features):
+        indata = [features]
+        if self.feape > 0:
+            indata += [positional_encoding(features, self.feape)]
+        mlp_in = torch.cat(indata, dim=-1)
+        sigma_feature = self.mlp(mlp_in)
+
+        return sigma_feature
+        
 class MLPRender_Fea(torch.nn.Module):
     def __init__(self,inChanel, viewpe=6, feape=6, featureC=128):
         super(MLPRender_Fea, self).__init__()
@@ -177,6 +199,7 @@ class TensorBase(torch.nn.Module):
             self.renderModule = MLPRender_PE(self.app_dim, view_pe, pos_pe, featureC).to(device)
         elif shadingMode == 'MLP_Fea':
             self.renderModule = MLPRender_Fea(self.app_dim, view_pe, fea_pe, featureC).to(device)
+            self.densityModule = MLPRender_Fea_Density(self.app_dim, fea_pe, featureC).to(device)
         elif shadingMode == 'MLP':
             self.renderModule = MLPRender(self.app_dim, view_pe, featureC).to(device)
         elif shadingMode == 'SH':
@@ -206,13 +229,26 @@ class TensorBase(torch.nn.Module):
     def init_svd_volume(self, res, device):
         pass
 
-    def compute_features(self, xyz_sampled):
-        pass
+    def compute_features(self, xyz_sampled, viewdirs, clip_features):
+
+        xyz_features = self.compute_xyzfeature(xyz_sampled)
+        rgbs = self.renderModule(xyz_sampled, viewdirs, xyz_features)
+        sigmas = self.densityModule(xyz_sampled, xyz_features)
+        return sigmas.squeeze(-1), rgbs
     
-    def compute_densityfeature(self, xyz_sampled):
-        pass
+    def compute_densityfeature(self, xyz_sampled, clip_features):
+
+        xyz_features = self.compute_xyzfeature(xyz_sampled)
+        sigmas = self.densityModule(xyz_sampled, xyz_features)
+        return sigmas.squeeze(-1)
     
-    def compute_appfeature(self, xyz_sampled):
+    def compute_appfeature(self, xyz_sampled, clip_features):
+
+        xyz_features = self.compute_xyzfeature(xyz_sampled)
+        rgbs = self.renderModule(xyz_sampled, viewdirs, xyz_features)
+        return rgbs
+    
+    def compute_xyzfeature(self, xyz_sampled):
         pass
     
     def normalize_coord(self, xyz_sampled):
@@ -300,7 +336,7 @@ class TensorBase(torch.nn.Module):
         pass
 
     @torch.no_grad()
-    def getDenseAlpha(self,gridSize=None):
+    def getDenseAlpha(self, clip_features, gridSize=None):
         gridSize = self.gridSize if gridSize is None else gridSize
 
         samples = torch.stack(torch.meshgrid(
@@ -314,7 +350,7 @@ class TensorBase(torch.nn.Module):
         # print(self.stepSize, self.distance_scale*self.aabbDiag)
         alpha = torch.zeros_like(dense_xyz[...,0])
         for i in range(gridSize[0]):
-            alpha[i] = self.compute_alpha(dense_xyz[i].view(-1,3), self.stepSize).view((gridSize[1], gridSize[2]))
+            alpha[i] = self.compute_alpha(dense_xyz[i].view(-1,3), clip_features, self.stepSize).view((gridSize[1], gridSize[2]))
         return alpha, dense_xyz
 
     @torch.no_grad()
@@ -383,7 +419,7 @@ class TensorBase(torch.nn.Module):
             return F.relu(density_features)
 
 
-    def compute_alpha(self, xyz_locs, length=1):
+    def compute_alpha(self, xyz_locs, clip_features, length=1):
 
         if self.alphaMask is not None:
             alphas = self.alphaMask.sample_alpha(xyz_locs)
@@ -396,7 +432,7 @@ class TensorBase(torch.nn.Module):
 
         if alpha_mask.any():
             xyz_sampled = self.normalize_coord(xyz_locs[alpha_mask])
-            sigma_feature = self.compute_densityfeature(xyz_sampled)
+            sigma_feature = self.compute_densityfeature(xyz_sampled, clip_features)
             validsigma = self.feature2density(sigma_feature)
             sigma[alpha_mask] = validsigma
         
@@ -420,34 +456,18 @@ class TensorBase(torch.nn.Module):
             xyz_sampled, z_vals, ray_valid = self.sample_ray(rays_chunk[:, :3], viewdirs, is_train=is_train,N_samples=N_samples)
             dists = torch.cat((z_vals[:, 1:] - z_vals[:, :-1], torch.zeros_like(z_vals[:, :1])), dim=-1)
         viewdirs = viewdirs.view(-1, 1, 3).expand(xyz_sampled.shape)
-        
-        if self.alphaMask is not None:
-            alphas = self.alphaMask.sample_alpha(xyz_sampled[ray_valid])
-            alpha_mask = alphas > 0
-            ray_invalid = ~ray_valid
-            ray_invalid[ray_valid] |= (~alpha_mask)
-            ray_valid = ~ray_invalid
 
 
-        sigma = torch.zeros(xyz_sampled.shape[:-1], device=xyz_sampled.device)
-        rgb = torch.zeros((*xyz_sampled.shape[:2], 3), device=xyz_sampled.device)
+        xyz_sampled = self.normalize_coord(xyz_sampled)
+        sigma_feature, valid_rgbs = self.compute_features(xyz_sampled, viewdirs, clip_chunk)
 
-        if ray_valid.any():
-            xyz_sampled = self.normalize_coord(xyz_sampled)
-            sigma_feature = self.compute_densityfeature(xyz_sampled[ray_valid])
-
-            validsigma = self.feature2density(sigma_feature)
-            sigma[ray_valid] = validsigma
+        validsigma = self.feature2density(sigma_feature)
+        sigma = validsigma
 
 
         alpha, weight, bg_weight = raw2alpha(sigma, dists * self.distance_scale)
 
-        app_mask = weight > self.rayMarch_weight_thres
-
-        if app_mask.any():
-            app_features = self.compute_appfeature(xyz_sampled[app_mask])
-            valid_rgbs = self.renderModule(xyz_sampled[app_mask], viewdirs[app_mask], app_features)
-            rgb[app_mask] = valid_rgbs
+        rgb = valid_rgbs
 
         acc_map = torch.sum(weight, -1)
         rgb_map = torch.sum(weight[..., None] * rgb, -2)
