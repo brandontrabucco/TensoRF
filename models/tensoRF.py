@@ -160,13 +160,17 @@ class TensorVMSplit(TensorBase):
     
     
 
-    def get_optparam_groups(self, lr_init_spatialxyz = 0.02, lr_init_network = 0.001):
+    def get_optparam_groups(self, lr_init_spatialxyz = 0.02, lr_init_network = 0.001, lr_init_transformer = 0.0001):
         grad_vars = [{'params': self.app_line, 'lr': lr_init_spatialxyz}, {'params': self.app_plane, 'lr': lr_init_spatialxyz},
                          {'params': self.basis_mat.parameters(), 'lr':lr_init_network}]
         if isinstance(self.renderModule, torch.nn.Module):
             grad_vars += [{'params':self.renderModule.parameters(), 'lr':lr_init_network}]
         if isinstance(self.densityModule, torch.nn.Module):
             grad_vars += [{'params':self.densityModule.parameters(), 'lr':lr_init_network}]
+        if isinstance(self.encoderModule, torch.nn.Module):
+            grad_vars += [{'params':self.encoderModule.parameters(), 'lr':lr_init_transformer}]
+        if isinstance(self.decoderModule, torch.nn.Module):
+            grad_vars += [{'params':self.decoderModule.parameters(), 'lr':lr_init_transformer}]
         return grad_vars
 
 

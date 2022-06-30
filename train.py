@@ -105,6 +105,9 @@ def reconstruction(args):
     n_lamb_sigma = args.n_lamb_sigma
     n_lamb_sh = args.n_lamb_sh
 
+    if upsamp_list is None:
+        upsamp_list = []
+
     if update_AlphaMask_list is None:
         update_AlphaMask_list = []
         
@@ -152,7 +155,7 @@ def reconstruction(args):
         tensorf = DistributedDataParallel(tensorf, device_ids=[rank], output_device=rank)
         tensorf_module = tensorf.module
 
-    grad_vars = tensorf_module.get_optparam_groups(args.lr_init, args.lr_basis)
+    grad_vars = tensorf_module.get_optparam_groups(args.lr_init, args.lr_network, args.lr_transformer)
     if args.lr_decay_iters > 0:
         lr_factor = args.lr_decay_target_ratio**(1/args.lr_decay_iters)
     else:
@@ -259,7 +262,7 @@ def reconstruction(args):
 
 
         if iteration % args.vis_every == args.vis_every - 1 and args.N_vis!=0:
-            PSNRs_test = evaluation(test_dataset,tensorf, args, renderer, f'{logfolder}/imgs_vis/', chunk=args.batch_size, N_vis=args.N_vis,
+            PSNRs_test = evaluation(test_dataset,tensorf, args, renderer, savePath=f'{logfolder}/imgs_vis/', chunk=args.batch_size, N_vis=args.N_vis,
                                     prtx=f'{iteration:06d}_', N_samples=nSamples, white_bg = white_bg, ndc_ray=ndc_ray, compute_extra_metrics=False)
             if rank == 0:
                 summary_writer.add_scalar('test/psnr', np.mean(PSNRs_test), global_step=iteration)
@@ -300,7 +303,7 @@ def reconstruction(args):
                 tensorf = DistributedDataParallel(tensorf_module, device_ids=[rank], output_device=rank)
                 tensorf_module = tensorf.module
 
-            grad_vars = tensorf_module.get_optparam_groups(args.lr_init*lr_scale, args.lr_basis*lr_scale)
+            grad_vars = tensorf_module.get_optparam_groups(args.lr_init*lr_scale, args.lr_network*lr_scale, args.lr_transformer*lr_scale)
             optimizer = torch.optim.Adam(grad_vars, betas=(0.9, 0.99))
         
 
@@ -311,13 +314,13 @@ def reconstruction(args):
     if args.render_train:
         os.makedirs(f'{logfolder}/imgs_train_all', exist_ok=True)
         train_dataset = dataset(args.datadir, split='train', downsample=args.downsample_train, is_stack=True)
-        PSNRs_test = evaluation(train_dataset,tensorf, args, renderer, f'{logfolder}/imgs_train_all/', chunk=args.batch_size,
+        PSNRs_test = evaluation(train_dataset,tensorf, args, renderer, savePath=f'{logfolder}/imgs_train_all/', chunk=args.batch_size,
                                 N_vis=-1, N_samples=-1, white_bg = white_bg, ndc_ray=ndc_ray,device=device)
         print(f'======> {args.expname} test all psnr: {np.mean(PSNRs_test)} <========================')
 
     if args.render_test:
         os.makedirs(f'{logfolder}/imgs_test_all', exist_ok=True)
-        PSNRs_test = evaluation(test_dataset,tensorf, args, renderer, f'{logfolder}/imgs_test_all/', chunk=args.batch_size,
+        PSNRs_test = evaluation(test_dataset,tensorf, args, renderer, savePath=f'{logfolder}/imgs_test_all/', chunk=args.batch_size,
                                 N_vis=-1, N_samples=-1, white_bg = white_bg, ndc_ray=ndc_ray,device=device)
         if rank == 0:
             summary_writer.add_scalar('test/psnr_all', np.mean(PSNRs_test), global_step=iteration)
@@ -329,7 +332,7 @@ def reconstruction(args):
         # c2ws = test_dataset.poses
         print('========>',c2ws.shape)
         os.makedirs(f'{logfolder}/imgs_path_all', exist_ok=True)
-        evaluation_path(test_dataset,tensorf, c2ws, clip_features, renderer, f'{logfolder}/imgs_path_all/', chunk=args.batch_size,
+        evaluation_path(test_dataset,tensorf, c2ws, clip_features, renderer, savePath=f'{logfolder}/imgs_path_all/', chunk=args.batch_size,
                         N_vis=-1, N_samples=-1, white_bg = white_bg, ndc_ray=ndc_ray,device=device)
 
 

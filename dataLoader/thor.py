@@ -98,7 +98,7 @@ class THORDataset(Dataset):
         self.val_chunk = np.array_split(
             self.val_scenes, self.world_size)[self.rank]
 
-        self.chunk = np.array([2550])
+        self.chunk = np.array([2550, 3700])
 
         for scene_id in self.scenes:
             if scene_id not in self.chunk:

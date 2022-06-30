@@ -49,6 +49,7 @@ def evaluation(test_dataset,tensorf, args, renderer, chunk=2048, savePath=None, 
 
         ids_test = torch.arange(199).to(device).view(1, 199) + (idx // 199) * 199
         clip = torch.nn.functional.embedding(ids_test, clip_test)
+        clip = clip.expand(rays.shape[0], *clip.shape[1:])
 
         rgb_map, _, depth_map, _, _ = renderer(rays, clip, tensorf, chunk=chunk, N_samples=N_samples,
                                         ndc_ray=ndc_ray, white_bg = white_bg, device=device)

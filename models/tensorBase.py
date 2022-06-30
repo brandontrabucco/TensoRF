@@ -2,6 +2,7 @@ import torch
 import torch.nn
 import torch.nn.functional as F
 from .sh import eval_sh_bases
+from .layers import Transformer
 import numpy as np
 import time
 
@@ -199,7 +200,6 @@ class TensorBase(torch.nn.Module):
             self.renderModule = MLPRender_PE(self.app_dim, view_pe, pos_pe, featureC).to(device)
         elif shadingMode == 'MLP_Fea':
             self.renderModule = MLPRender_Fea(self.app_dim, view_pe, fea_pe, featureC).to(device)
-            self.densityModule = MLPRender_Fea_Density(self.app_dim, fea_pe, featureC).to(device)
         elif shadingMode == 'MLP':
             self.renderModule = MLPRender(self.app_dim, view_pe, featureC).to(device)
         elif shadingMode == 'SH':
@@ -212,6 +212,12 @@ class TensorBase(torch.nn.Module):
             exit()
         print("pos_pe", pos_pe, "view_pe", view_pe, "fea_pe", fea_pe)
         print(self.renderModule)
+
+        self.densityModule = MLPRender_Fea_Density(self.app_dim, fea_pe, featureC).to(device)
+        self.encoderModule = Transformer(dim0=512, depth=2, heads=12, dim_head=64, mlp_dim=1024, selfatt=True).to(device)
+        self.decoderModule = Transformer(dim0=self.app_dim, dim1=512, depth=2, heads=12, dim_head=64, mlp_dim=1024, selfatt=False).to(device)
+
+        self.sequence_embedding = torch.nn.Parameter(torch.randn(1, 199, 512)).to(device)
 
     def update_stepSize(self, gridSize):
         print("aabb", self.aabb.view(-1))
@@ -231,20 +237,35 @@ class TensorBase(torch.nn.Module):
 
     def compute_features(self, xyz_sampled, viewdirs, clip_features):
 
+        z = clip_features + self.sequence_embedding[:, :clip_features.shape[1], :]
+        z = self.encoderModule(z)
+
         xyz_features = self.compute_xyzfeature(xyz_sampled)
+        xyz_features = self.decoderModule(xyz_features, z)
+
         rgbs = self.renderModule(xyz_sampled, viewdirs, xyz_features)
         sigmas = self.densityModule(xyz_sampled, xyz_features)
         return sigmas.squeeze(-1), rgbs
     
     def compute_densityfeature(self, xyz_sampled, clip_features):
 
+        z = clip_features + self.sequence_embedding[:, :clip_features.shape[1], :]
+        z = self.encoderModule(z)
+
         xyz_features = self.compute_xyzfeature(xyz_sampled)
+        xyz_features = self.decoderModule(xyz_features, z)
+
         sigmas = self.densityModule(xyz_sampled, xyz_features)
         return sigmas.squeeze(-1)
     
     def compute_appfeature(self, xyz_sampled, clip_features):
 
+        z = clip_features + self.sequence_embedding[:, :clip_features.shape[1], :]
+        z = self.encoderModule(z)
+
         xyz_features = self.compute_xyzfeature(xyz_sampled)
+        xyz_features = self.decoderModule(xyz_features, z)
+
         rgbs = self.renderModule(xyz_sampled, viewdirs, xyz_features)
         return rgbs
     
