@@ -94,7 +94,7 @@ def reconstruction(args):
     # init dataset
     dataset = dataset_dict[args.dataset_name]
     train_dataset = dataset(args.datadir, split='train', downsample=args.downsample_train, is_stack=False)
-    test_dataset = dataset(args.datadir, split='test', downsample=args.downsample_train, is_stack=True)
+    test_dataset = dataset(args.datadir, split='test', downsample=args.downsample_test, is_stack=True)
     white_bg = train_dataset.white_bg
     near_far = train_dataset.near_far
     ndc_ray = args.ndc_ray
@@ -230,7 +230,7 @@ def reconstruction(args):
                 summary_writer.add_scalar('train/reg_tv_density', loss_tv.detach().item(), global_step=iteration)
         if TV_weight_app>0:
             TV_weight_app *= lr_factor
-            loss_tv = loss_tv + tensorf_module.TV_loss_app(tvreg)*TV_weight_app
+            loss_tv = tensorf_module.TV_loss_app(tvreg)*TV_weight_app
             total_loss = total_loss + loss_tv
             if rank == 0:
                 summary_writer.add_scalar('train/reg_tv_app', loss_tv.detach().item(), global_step=iteration)

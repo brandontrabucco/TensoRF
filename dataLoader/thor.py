@@ -89,8 +89,8 @@ class THORDataset(Dataset):
         self.num_scenes = len(self.dataset_dict)
         self.scenes = np.array(list(self.dataset_dict.keys()))
 
-        self.train_scenes = self.scenes[:int(self.num_scenes * 0.95)]
-        self.val_scenes = self.scenes[int(self.num_scenes * 0.95):]
+        self.train_scenes = self.scenes[:int(self.num_scenes * 0.99)]
+        self.val_scenes = self.scenes[int(self.num_scenes * 0.99):]
 
         self.train_chunk = np.array_split(
             self.train_scenes, self.world_size)[self.rank]
@@ -99,6 +99,7 @@ class THORDataset(Dataset):
             self.val_scenes, self.world_size)[self.rank]
 
         self.chunk = self.train_chunk if self.split == "train" else self.val_chunk
+        self.chunk = np.array([0, 500, 1000, 1500, 2000, 2500])
 
         for scene_id in self.scenes:
             if scene_id not in self.chunk:
