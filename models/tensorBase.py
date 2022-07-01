@@ -214,8 +214,8 @@ class TensorBase(torch.nn.Module):
         print(self.renderModule)
 
         self.densityModule = MLPRender_Fea_Density(self.app_dim, fea_pe, featureC).to(device)
-        self.encoderModule = Transformer(dim0=512, depth=2, heads=12, dim_head=64, mlp_dim=1024, selfatt=True).to(device)
-        self.decoderModule = Transformer(dim0=self.app_dim, dim1=512, depth=2, heads=12, dim_head=64, mlp_dim=1024, selfatt=False).to(device)
+        self.encoderModule = Transformer(dim0=512, depth=6, heads=8, dim_head=128, mlp_dim=1024, selfatt=True).to(device)
+        self.decoderModule = Transformer(dim0=self.app_dim, dim1=512, depth=6, heads=8, dim_head=64, mlp_dim=512, selfatt=False).to(device)
 
         self.sequence_embedding = torch.nn.Parameter(torch.randn(1, 199, 512)).to(device)
 

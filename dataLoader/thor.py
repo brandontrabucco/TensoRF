@@ -16,7 +16,7 @@ from .gpu_utils import get_rank, get_world_size
 
 class THORDataset(Dataset):
 
-    def __init__(self, datadir, split='train', downsample=1.75, is_stack=False, N_vis=-1, 
+    def __init__(self, datadir, split='train', downsample=3.5, is_stack=False, N_vis=-1, 
                  num_chunks=128, images_per_scene=199):
 
         self.rank = get_rank()
@@ -33,8 +33,8 @@ class THORDataset(Dataset):
         self.img_wh = [int(224 / downsample), int(224 / downsample)]
         self.focal = 0.5 * self.img_wh[0] / np.tan(0.25 * np.pi)
 
-        self.scene_bbox = torch.tensor([[-20.0, -20.0, -20.0], [20.0, 20.0, 20.0]])
-        self.convention = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
+        self.scene_bbox = torch.tensor([[-20, -20, -20], [20, 20, 20]]).float()
+        self.convention = torch.tensor([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]]).float()
 
         self.prepare()
 
@@ -98,7 +98,7 @@ class THORDataset(Dataset):
         self.val_chunk = np.array_split(
             self.val_scenes, self.world_size)[self.rank]
 
-        self.chunk = np.array([2550, 3700])
+        self.chunk = self.train_chunk if self.split == "train" else self.val_chunk
 
         for scene_id in self.scenes:
             if scene_id not in self.chunk:
@@ -106,22 +106,28 @@ class THORDataset(Dataset):
                 
         tqdm0 = tqdm if self.rank == 0 else lambda x: x
 
-        for scene_id, transition_id in tqdm0(list(
-                itertools.product(self.dataset_dict.keys(), 
-                                  range(self.images_per_scene)))):
+        for scene_id in tqdm0(list(self.dataset_dict.keys())):
 
-                self.dataset_dict[scene_id][transition_id]["clip"] = \
-                    np.load(self.dataset_dict[scene_id][transition_id]["clip"])
+            canonical = None  # coordinates are relative to first observation
+
+            for transition_id in range(self.images_per_scene):
+
+                clip = np.load(self.dataset_dict[scene_id][transition_id]["clip"])
+                self.dataset_dict[scene_id][transition_id]["clip"] = clip.astype(np.float32)
 
                 pose = np.load(self.dataset_dict[scene_id][transition_id]["pose"])
-                self.dataset_dict[scene_id][transition_id]["pose"] = pose
+                self.dataset_dict[scene_id][transition_id]["pose"] = pose.astype(np.float32)
 
                 c2w = torch.FloatTensor(np.concatenate([
-                    np.roll(pose, shift=-1, axis=-1), 
-                    [[0.0, 0.0, 0.0, 1.0]]], axis=-2) @ self.convention)
+                    np.roll(pose, -1, axis=-1), [[0, 0, 0, 1]]], axis=-2)) @ self.convention
+
+                if canonical is None:
+                    canonical = torch.linalg.inv(c2w)
+
+                c2w = canonical @ c2w
 
                 self.dataset_dict[scene_id][transition_id]["rays"] = \
-                    torch.cat(list(get_rays(self.directions, c2w)), dim=1)
+                    torch.cat(list(get_rays(self.directions, c2w)), dim=1).float()
         
     def __len__(self):
 
