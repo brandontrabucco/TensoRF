@@ -1,17 +1,18 @@
 
 dataset_name = thor
-datadir = /home/ec2-user/srt/data/thor
+datadir = ./data/thor
+
 expname =  thor
 basedir = ./log
 
-n_iters = 60000
+n_iters = 20000
 batch_size = 4096
 
 N_voxel_init = 2097156 # 128**3
 N_voxel_final = 134217728 # 512**3
 
-upsamp_list = [2000,3000,4000,5500,7000]
-update_AlphaMask_list = [2000,4000,7000]
+upsamp_list = [1500,3000,4500,7500]
+update_AlphaMask_list = [6000,8000]
 
 N_vis = 5
 vis_every = 10000
@@ -32,7 +33,7 @@ fea_pe = 2
 TV_weight_density = 1.0
 TV_weight_app = 1.0
 
-L1_weight_inital = 0.001
-L1_weight_rest = 0.001
+L1_weight_inital = 0.0008
+L1_weight_rest = 0.0004
 
 rm_weight_mask_thre = 1e-4
