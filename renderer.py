@@ -6,6 +6,9 @@ from utils import *
 from dataLoader.ray_utils import ndc_rays_blender
 
 
+colormap = np.random.randint(0, high=255, size=[1000, 3], dtype=np.uint8)
+
+
 def OctreeRender_trilinear_fast(rays, tensorf, chunk=4096, N_samples=-1, ndc_ray=False, white_bg=True, is_train=False, device='cuda'):
 
     rgbs, alphas, depth_maps, weights, uncertainties = [], [], [], [], []
@@ -21,21 +24,23 @@ def OctreeRender_trilinear_fast(rays, tensorf, chunk=4096, N_samples=-1, ndc_ray
     return torch.cat(rgbs), None, torch.cat(depth_maps), None, None
 
 @torch.no_grad()
-def evaluation(test_dataset,tensorf, args, renderer, savePath=None, N_vis=5, prtx='', N_samples=-1,
+def evaluation(test_dataset,tensorf, tensorf_semantic, args, renderer, savePath=None, N_vis=5, prtx='', N_samples=-1,
                white_bg=False, ndc_ray=False, compute_extra_metrics=True, device='cuda'):
     PSNRs, rgb_maps, depth_maps = [], [], []
     ssims,l_alex,l_vgg=[],[],[]
     os.makedirs(savePath, exist_ok=True)
-    os.makedirs(savePath+"/rgbd", exist_ok=True)
+    os.makedirs(savePath+"/extras", exist_ok=True)
 
     try:
         tqdm._instances.clear()
     except Exception:
         pass
 
+
     near_far = test_dataset.near_far
     img_eval_interval = 1 if N_vis < 0 else max(test_dataset.all_rays.shape[0] // N_vis,1)
     idxs = list(range(0, test_dataset.all_rays.shape[0], img_eval_interval))
+    all_labels = test_dataset.all_labels[0::img_eval_interval]
     for idx, samples in tqdm(enumerate(test_dataset.all_rays[0::img_eval_interval]), file=sys.stdout):
 
         W, H = test_dataset.img_wh
@@ -45,8 +50,21 @@ def evaluation(test_dataset,tensorf, args, renderer, savePath=None, N_vis=5, prt
                                         ndc_ray=ndc_ray, white_bg = white_bg, device=device)
         rgb_map = rgb_map.clamp(0.0, 1.0)
 
-        rgb_map, depth_map = rgb_map.reshape(H, W, 3).cpu(), depth_map.reshape(H, W).cpu()
+        label_map, _, _, _, _ = renderer(rays, tensorf_semantic, chunk=4096, N_samples=N_samples,
+                                        ndc_ray=ndc_ray, white_bg = white_bg, device=device)
+        label_map = label_map.clamp(0.0, 1.0)
+        label_map_argmax = label_map.argmax(dim=-1)
+        label_map = torch.where(label_map.amax(dim=-1) > 0.9, 
+                                label_map_argmax, torch.zeros_like(label_map_argmax))
 
+        rgb_map, label_map, depth_map = (rgb_map.reshape(H, W, 3).cpu(),
+                                         label_map.reshape(H, W).cpu(), 
+                                         depth_map.reshape(H, W).cpu())
+
+        ground_truth_labels = all_labels[idx].view(H, W)
+
+        label_map = colormap[label_map.numpy()]
+        gt_label_map = colormap[ground_truth_labels.numpy()]
         depth_map, _ = visualize_depth_numpy(depth_map.numpy(),near_far)
         if len(test_dataset.all_rgbs):
             gt_rgb = test_dataset.all_rgbs[idxs[idx]].view(H, W, 3)
@@ -67,8 +85,8 @@ def evaluation(test_dataset,tensorf, args, renderer, savePath=None, N_vis=5, prt
         depth_maps.append(depth_map)
         if savePath is not None:
             imageio.imwrite(f'{savePath}/{prtx}{idx:03d}.png', rgb_map)
-            rgb_map = np.concatenate((rgb_map, depth_map), axis=1)
-            imageio.imwrite(f'{savePath}/rgbd/{prtx}{idx:03d}.png', rgb_map)
+            rgb_map = np.concatenate((rgb_map, gt_label_map, label_map, depth_map), axis=1)
+            imageio.imwrite(f'{savePath}/extras/{prtx}{idx:03d}.png', rgb_map)
 
     imageio.mimwrite(f'{savePath}/{prtx}video.mp4', np.stack(rgb_maps), fps=30, quality=10)
     imageio.mimwrite(f'{savePath}/{prtx}depthvideo.mp4', np.stack(depth_maps), fps=30, quality=10)
@@ -87,12 +105,12 @@ def evaluation(test_dataset,tensorf, args, renderer, savePath=None, N_vis=5, prt
     return PSNRs
 
 @torch.no_grad()
-def evaluation_path(test_dataset,tensorf, c2ws, renderer, savePath=None, N_vis=5, prtx='', N_samples=-1,
+def evaluation_path(test_dataset,tensorf, tensorf_semantic, c2ws, renderer, savePath=None, N_vis=5, prtx='', N_samples=-1,
                     white_bg=False, ndc_ray=False, compute_extra_metrics=True, device='cuda'):
     PSNRs, rgb_maps, depth_maps = [], [], []
     ssims,l_alex,l_vgg=[],[],[]
     os.makedirs(savePath, exist_ok=True)
-    os.makedirs(savePath+"/rgbd", exist_ok=True)
+    os.makedirs(savePath+"/extras", exist_ok=True)
 
     try:
         tqdm._instances.clear()
@@ -110,12 +128,22 @@ def evaluation_path(test_dataset,tensorf, c2ws, renderer, savePath=None, N_vis=5
             rays_o, rays_d = ndc_rays_blender(H, W, test_dataset.focal[0], 1.0, rays_o, rays_d)
         rays = torch.cat([rays_o, rays_d], 1)  # (h*w, 6)
 
-        rgb_map, _, depth_map, _, _ = renderer(rays, tensorf, chunk=8192, N_samples=N_samples,
+        rgb_map, _, depth_map, _, _ = renderer(rays, tensorf, chunk=4096, N_samples=N_samples,
                                         ndc_ray=ndc_ray, white_bg = white_bg, device=device)
         rgb_map = rgb_map.clamp(0.0, 1.0)
 
-        rgb_map, depth_map = rgb_map.reshape(H, W, 3).cpu(), depth_map.reshape(H, W).cpu()
+        label_map, _, _, _, _ = renderer(rays, tensorf_semantic, chunk=4096, N_samples=N_samples,
+                                        ndc_ray=ndc_ray, white_bg = white_bg, device=device)
+        label_map = label_map.clamp(0.0, 1.0)
+        label_map_argmax = label_map.argmax(dim=-1)
+        label_map = torch.where(label_map.amax(dim=-1) > 0.9, 
+                                label_map_argmax, torch.zeros_like(label_map_argmax))
 
+        rgb_map, label_map, depth_map = (rgb_map.reshape(H, W, 3).cpu(),
+                                         label_map.reshape(H, W).cpu(), 
+                                         depth_map.reshape(H, W).cpu())
+
+        label_map = colormap[label_map.numpy()]
         depth_map, _ = visualize_depth_numpy(depth_map.numpy(),near_far)
 
         rgb_map = (rgb_map.numpy() * 255).astype('uint8')
@@ -124,8 +152,8 @@ def evaluation_path(test_dataset,tensorf, c2ws, renderer, savePath=None, N_vis=5
         depth_maps.append(depth_map)
         if savePath is not None:
             imageio.imwrite(f'{savePath}/{prtx}{idx:03d}.png', rgb_map)
-            rgb_map = np.concatenate((rgb_map, depth_map), axis=1)
-            imageio.imwrite(f'{savePath}/rgbd/{prtx}{idx:03d}.png', rgb_map)
+            rgb_map = np.concatenate((rgb_map, label_map, depth_map), axis=1)
+            imageio.imwrite(f'{savePath}/extras/{prtx}{idx:03d}.png', rgb_map)
 
     imageio.mimwrite(f'{savePath}/{prtx}video.mp4', np.stack(rgb_maps), fps=30, quality=8)
     imageio.mimwrite(f'{savePath}/{prtx}depthvideo.mp4', np.stack(depth_maps), fps=30, quality=8)

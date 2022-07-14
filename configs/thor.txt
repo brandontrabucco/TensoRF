@@ -8,13 +8,11 @@ basedir = ./log
 n_iters = 20000
 batch_size = 4096
 
-N_voxel_init = 2097156 # 128**3
-N_voxel_final = 134217728 # 512**3
+N_voxel_init = 1000000 # 100**3
+N_voxel_final = 27000000 # 300**3
+upsamp_list = [2000,3000,4000,5500]
 
-upsamp_list = [1500,3000,4500,7500]
-update_AlphaMask_list = [6000,8000]
-
-N_vis = 5
+N_vis = -1
 vis_every = 10000
 
 render_test = 1
@@ -22,18 +20,16 @@ render_test = 1
 n_lamb_sigma = [16,16,16]
 n_lamb_sh = [48,48,48]
 
+data_dim_color = 32
+featureC = 128
+
 model_name = TensorVMSplit
 
 shadingMode = MLP_Fea
-fea2denseAct = softplus
+fea2denseAct = relu
 
 view_pe = 2
 fea_pe = 2
 
 TV_weight_density = 1.0
 TV_weight_app = 1.0
-
-L1_weight_inital = 0.0008
-L1_weight_rest = 0.0004
-
-rm_weight_mask_thre = 1e-4

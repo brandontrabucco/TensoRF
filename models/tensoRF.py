@@ -14,8 +14,8 @@ class TensorVM(TensorBase):
         self.basis_mat = torch.nn.Linear(self.app_n_comp * 3, self.app_dim, bias=False, device=device)
 
     
-    def get_optparam_groups(self, lr_init_spatialxyz = 0.02, lr_init_network = 0.001):
-        grad_vars = [{'params': self.line_coef, 'lr': lr_init_spatialxyz}, {'params': self.plane_coef, 'lr': lr_init_spatialxyz},
+    def get_optparam_groups(self, lr_init_xyz = 0.02, lr_init_network = 0.001):
+        grad_vars = [{'params': self.line_coef, 'lr': lr_init_xyz}, {'params': self.plane_coef, 'lr': lr_init_xyz},
                          {'params': self.basis_mat.parameters(), 'lr':lr_init_network}]
         if isinstance(self.renderModule, torch.nn.Module):
             grad_vars += [{'params':self.renderModule.parameters(), 'lr':lr_init_network}]
@@ -161,9 +161,9 @@ class TensorVMSplit(TensorBase):
     
     
 
-    def get_optparam_groups(self, lr_init_spatialxyz = 0.02, lr_init_network = 0.001):
-        grad_vars = [{'params': self.density_line, 'lr': lr_init_spatialxyz}, {'params': self.density_plane, 'lr': lr_init_spatialxyz},
-                     {'params': self.app_line, 'lr': lr_init_spatialxyz}, {'params': self.app_plane, 'lr': lr_init_spatialxyz},
+    def get_optparam_groups(self, lr_init_xyz = 0.02, lr_init_network = 0.001):
+        grad_vars = [{'params': self.density_line, 'lr': lr_init_xyz}, {'params': self.density_plane, 'lr': lr_init_xyz},
+                     {'params': self.app_line, 'lr': lr_init_xyz}, {'params': self.app_plane, 'lr': lr_init_xyz},
                          {'params': self.basis_mat.parameters(), 'lr':lr_init_network}]
         if isinstance(self.renderModule, torch.nn.Module):
             grad_vars += [{'params':self.renderModule.parameters(), 'lr':lr_init_network}]
@@ -323,9 +323,9 @@ class TensorCP(TensorBase):
         return torch.nn.ParameterList(line_coef).to(device)
 
     
-    def get_optparam_groups(self, lr_init_spatialxyz = 0.02, lr_init_network = 0.001):
-        grad_vars = [{'params': self.density_line, 'lr': lr_init_spatialxyz},
-                     {'params': self.app_line, 'lr': lr_init_spatialxyz},
+    def get_optparam_groups(self, lr_init_xyz = 0.02, lr_init_network = 0.001):
+        grad_vars = [{'params': self.density_line, 'lr': lr_init_xyz},
+                     {'params': self.app_line, 'lr': lr_init_xyz},
                      {'params': self.basis_mat.parameters(), 'lr':lr_init_network}]
         if isinstance(self.renderModule, torch.nn.Module):
             grad_vars += [{'params':self.renderModule.parameters(), 'lr':lr_init_network}]

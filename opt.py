@@ -30,6 +30,18 @@ def config_parser(cmd=None):
                         choices=['blender', 'llff', 'nsvf', 'dtu','tankstemple', 'thor'])
 
 
+    # options for thor dataset
+    parser.add_argument("--phase", type=str, default="walkthrough")
+    parser.add_argument("--stage", type=str, default="train")
+    parser.add_argument("--scene_id", type=int, default=0)
+    
+
+    parser.add_argument("--semantic_update_delay", type=int, default=2)
+    parser.add_argument("--semantic_background_weight", type=float, default=1)
+    parser.add_argument("--semantic_pickable_object_weight", type=float, default=100)
+    parser.add_argument("--semantic_openable_object_weight", type=float, default=1)
+
+
     # training options
     # learning rate
     parser.add_argument("--lr_init", type=float, default=0.02,
