@@ -5,8 +5,6 @@ from torchvision.transforms import functional
 from torchvision.transforms import InterpolationMode
 from torchvision.transforms import Compose, ToTensor, Resize, Normalize, Lambda
 
-import clip
-
 import os
 import glob
 
@@ -18,7 +16,8 @@ from .ray_utils import *
 
 class THORDataset(object):
 
-    def __init__(self, datadir, split='train', downsample=1.0, is_stack=False, N_vis=-1, scene_id=2000, phase="walkthrough", stage="train"):
+    def __init__(self, datadir, split='train', downsample=1.0, is_stack=False, N_vis=-1, 
+                 scene_id=2000, phase="walkthrough", stage="train", images_per_scene=500):
 
         self.N_vis = N_vis
         self.root_dir = datadir
@@ -29,6 +28,8 @@ class THORDataset(object):
         self.scene_id = scene_id
         self.phase = phase
         self.stage = stage
+
+        self.images_per_scene = images_per_scene
         
         self.img_wh = [int(224 / downsample), int(224 / downsample)]
 
@@ -55,6 +56,17 @@ class THORDataset(object):
 
         self.center = self.scene_bbox.mean(dim=0).view(1, 1, 3)
         self.radius = self.scene_bbox[1].view(1, 1, 3) - self.center
+
+        voxel_init_size = 0.03
+        voxel_final_size = 0.01
+        
+        volume = self.radius.prod()
+
+        N_voxel_init = torch.ceil(volume / (voxel_init_size ** 3)).numpy().item()
+        N_voxel_final = torch.ceil(volume / (voxel_final_size ** 3)).numpy().item()
+
+        self.N_voxel_init = min(N_voxel_init, 200 ** 3)
+        self.N_voxel_final = min(N_voxel_final, 600 ** 3)
 
         self.white_bg = False
         self.near_far = [0.05, torch.linalg.norm(
@@ -84,20 +96,12 @@ class THORDataset(object):
     def prepare_dataset(self):
 
         self.dataset_dict = defaultdict(dict)
+        prefix = f"thor-{self.phase}-{self.stage}-{self.scene_id}"
 
-        for file in list(glob.glob(os.path.join(
-                self.root_dir, f"thor-{self.phase}-{self.stage}-{self.scene_id}-*.npy"))):
-
-            if "bounds" in file:
-                continue  # skip the scene bounds
-
-            scene_id, transition_id, content = \
-                os.path.basename(file)[:-4].split("-")[-3:]
-
-            scene_id = int(scene_id)
-            transition_id = int(transition_id)
-
-            self.dataset_dict[transition_id][content] = file
+        for transition_id in range(self.images_per_scene):
+            for content_type in ["image", "segmentation", "pose"]:
+                self.dataset_dict[transition_id][content_type] = os.path.join(
+                    self.root_dir, f"{prefix}-{transition_id}-{content_type}.npy")
 
         num_obs = len(self.dataset_dict)
         dataset_obs = np.array(list(self.dataset_dict.keys()))

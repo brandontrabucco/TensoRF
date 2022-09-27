@@ -5,15 +5,15 @@ datadir = ./data/thor
 expname =  thor
 basedir = ./log
 
-n_iters = 20000
+n_iters = 30000
 batch_size = 4096
 
-N_voxel_init = 1000000 # 100**3
-N_voxel_final = 27000000 # 300**3
+N_voxel_init = 262144 # 64**3
+N_voxel_final = 7077888 # 192**3
 upsamp_list = [2000,3000,4000,5500]
 
 N_vis = -1
-vis_every = 10000
+vis_every = 30000
 
 render_test = 1
 
@@ -33,3 +33,6 @@ fea_pe = 2
 
 TV_weight_density = 1.0
 TV_weight_app = 1.0
+
+lr_init = 0.003
+lr_basis = 0.001

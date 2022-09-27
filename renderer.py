@@ -50,20 +50,28 @@ def evaluation(test_dataset,tensorf, tensorf_semantic, args, renderer, savePath=
                                         ndc_ray=ndc_ray, white_bg = white_bg, device=device)
         rgb_map = rgb_map.clamp(0.0, 1.0)
 
-        label_map, _, _, _, _ = renderer(rays, tensorf_semantic, chunk=4096, N_samples=N_samples,
-                                        ndc_ray=ndc_ray, white_bg = white_bg, device=device)
-        label_map = label_map.clamp(0.0, 1.0)
-        label_map_argmax = label_map.argmax(dim=-1)
-        label_map = torch.where(label_map.amax(dim=-1) > 0.9, 
-                                label_map_argmax, torch.zeros_like(label_map_argmax))
+        if tensorf_semantic is not None:
 
-        rgb_map, label_map, depth_map = (rgb_map.reshape(H, W, 3).cpu(),
-                                         label_map.reshape(H, W).cpu(), 
-                                         depth_map.reshape(H, W).cpu())
+            label_map, _, _, _, _ = renderer(rays, tensorf_semantic, chunk=4096, N_samples=N_samples,
+                                            ndc_ray=ndc_ray, white_bg = white_bg, device=device)
+            label_map = label_map.clamp(0.0, 1.0)
+            label_map_argmax = label_map.argmax(dim=-1)
+            label_map = torch.where(label_map.amax(dim=-1) > 0.9, 
+                                        label_map_argmax, torch.zeros_like(label_map_argmax))
+
+            rgb_map, label_map, depth_map = (rgb_map.reshape(H, W, 3).cpu(),
+                                             label_map.reshape(H, W).cpu(), 
+                                             depth_map.reshape(H, W).cpu())
+
+        else:
+
+            rgb_map, label_map, depth_map = (rgb_map.reshape(H, W, 3).cpu(),
+                                             None, 
+                                             depth_map.reshape(H, W).cpu())
 
         ground_truth_labels = all_labels[idx].view(H, W)
 
-        label_map = colormap[label_map.numpy()]
+        label_map = colormap[label_map.numpy()] if label_map is not None else None
         gt_label_map = colormap[ground_truth_labels.numpy()]
         depth_map, _ = visualize_depth_numpy(depth_map.numpy(),near_far)
         if len(test_dataset.all_rgbs):
@@ -85,7 +93,10 @@ def evaluation(test_dataset,tensorf, tensorf_semantic, args, renderer, savePath=
         depth_maps.append(depth_map)
         if savePath is not None:
             imageio.imwrite(f'{savePath}/{prtx}{idx:03d}.png', rgb_map)
-            rgb_map = np.concatenate((rgb_map, gt_label_map, label_map, depth_map), axis=1)
+            if label_map is not None:
+                rgb_map = np.concatenate((rgb_map, gt_label_map, label_map, depth_map), axis=1)
+            else:
+                rgb_map = np.concatenate((rgb_map, gt_label_map, depth_map), axis=1)
             imageio.imwrite(f'{savePath}/extras/{prtx}{idx:03d}.png', rgb_map)
 
     imageio.mimwrite(f'{savePath}/{prtx}video.mp4', np.stack(rgb_maps), fps=30, quality=10)
@@ -132,18 +143,26 @@ def evaluation_path(test_dataset,tensorf, tensorf_semantic, c2ws, renderer, save
                                         ndc_ray=ndc_ray, white_bg = white_bg, device=device)
         rgb_map = rgb_map.clamp(0.0, 1.0)
 
-        label_map, _, _, _, _ = renderer(rays, tensorf_semantic, chunk=4096, N_samples=N_samples,
-                                        ndc_ray=ndc_ray, white_bg = white_bg, device=device)
-        label_map = label_map.clamp(0.0, 1.0)
-        label_map_argmax = label_map.argmax(dim=-1)
-        label_map = torch.where(label_map.amax(dim=-1) > 0.9, 
-                                label_map_argmax, torch.zeros_like(label_map_argmax))
+        if tensorf_semantic is not None:
 
-        rgb_map, label_map, depth_map = (rgb_map.reshape(H, W, 3).cpu(),
-                                         label_map.reshape(H, W).cpu(), 
-                                         depth_map.reshape(H, W).cpu())
+            label_map, _, _, _, _ = renderer(rays, tensorf_semantic, chunk=4096, N_samples=N_samples,
+                                            ndc_ray=ndc_ray, white_bg = white_bg, device=device)
+            label_map = label_map.clamp(0.0, 1.0)
+            label_map_argmax = label_map.argmax(dim=-1)
+            label_map = torch.where(label_map.amax(dim=-1) > 0.9, 
+                                        label_map_argmax, torch.zeros_like(label_map_argmax))
 
-        label_map = colormap[label_map.numpy()]
+            rgb_map, label_map, depth_map = (rgb_map.reshape(H, W, 3).cpu(),
+                                             label_map.reshape(H, W).cpu(), 
+                                             depth_map.reshape(H, W).cpu())
+
+        else:
+
+            rgb_map, label_map, depth_map = (rgb_map.reshape(H, W, 3).cpu(),
+                                             None, 
+                                             depth_map.reshape(H, W).cpu())
+
+        label_map = colormap[label_map.numpy()] if label_map is not None else None
         depth_map, _ = visualize_depth_numpy(depth_map.numpy(),near_far)
 
         rgb_map = (rgb_map.numpy() * 255).astype('uint8')
@@ -152,7 +171,10 @@ def evaluation_path(test_dataset,tensorf, tensorf_semantic, c2ws, renderer, save
         depth_maps.append(depth_map)
         if savePath is not None:
             imageio.imwrite(f'{savePath}/{prtx}{idx:03d}.png', rgb_map)
-            rgb_map = np.concatenate((rgb_map, label_map, depth_map), axis=1)
+            if label_map is not None:
+                rgb_map = np.concatenate((rgb_map, label_map, depth_map), axis=1)
+            else:
+                rgb_map = np.concatenate((rgb_map, depth_map), axis=1)
             imageio.imwrite(f'{savePath}/extras/{prtx}{idx:03d}.png', rgb_map)
 
     imageio.mimwrite(f'{savePath}/{prtx}video.mp4', np.stack(rgb_maps), fps=30, quality=8)
